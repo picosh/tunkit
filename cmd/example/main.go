@@ -13,18 +13,41 @@ import (
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
 	"github.com/picosh/ptun"
+	gossh "golang.org/x/crypto/ssh"
 )
 
+type ctxPubkey struct{}
+
+func getPubkey(ctx ssh.Context) (ssh.PublicKey, error) {
+	pubkey, ok := ctx.Value(ctxPubkey{}).(ssh.PublicKey)
+	if pubkey == nil || !ok {
+		return pubkey, fmt.Errorf("pubkey not set on `ssh.Context()` for connection")
+	}
+	return pubkey, nil
+}
+func setPubkey(ctx ssh.Context, pubkey ssh.PublicKey) {
+	ctx.SetValue(ctxPubkey{}, pubkey)
+}
+func keyForSha256(pk ssh.PublicKey) string {
+	return gossh.FingerprintSHA256(pk)
+}
+
 func authHandler(ctx ssh.Context, key ssh.PublicKey) bool {
+	setPubkey(ctx, key)
 	return true
 }
 
 func serveMux(ctx ssh.Context) http.Handler {
 	clientName := ctx.User()
-	router := http.NewServeMux()
+	pubkey, err := getPubkey(ctx)
+	if err != nil {
+		panic(err)
+	}
+	fingerprint := keyForSha256(pubkey)
 
+	router := http.NewServeMux()
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		_, err := w.Write([]byte(fmt.Sprintf("Hello %s!", clientName)))
+		_, err := w.Write([]byte(fmt.Sprintf("Hello, %s!\nYour pubkey: %s\n", clientName, fingerprint)))
 		if err != nil {
 			fmt.Println(err)
 		}
