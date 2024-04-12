@@ -20,7 +20,7 @@ type forwardedTCPPayload struct {
 	OriginPort uint32
 }
 
-type LocalForwardFn = func(*ssh.Server, *gossh.ServerConn, gossh.NewChannel, ssh.Context)
+type TcpIpForwardFn = func(*ssh.Server, *gossh.ServerConn, gossh.NewChannel, ssh.Context)
 type HttpHandlerFn = func(ctx ssh.Context) http.Handler
 
 type WebTunnel interface {
@@ -31,6 +31,7 @@ type WebTunnel interface {
 }
 
 func WithWebTunnel(handler WebTunnel) ssh.Option {
+	// forwardHandler := &ssh.ForwardedTCPHandler{}
 	return func(serv *ssh.Server) error {
 		if serv.ChannelHandlers == nil {
 			serv.ChannelHandlers = map[string]ssh.ChannelHandler{
@@ -38,6 +39,20 @@ func WithWebTunnel(handler WebTunnel) ssh.Option {
 			}
 		}
 		serv.ChannelHandlers["direct-tcpip"] = localForwardHandler(handler)
+		// serv.ChannelHandlers["forwarded-tcpip"] = remoteForwardHandler(handler)
+
+		/* serv.ReversePortForwardingCallback = func(ctx ssh.Context, bindHost string, bindPort uint32) bool {
+			fmt.Println("WTFFFF")
+			return true
+		}
+		serv.LocalPortForwardingCallback = func(ctx ssh.Context, destinationHost string, destinationPort uint32) bool {
+			fmt.Println("WOWWWW")
+			return true
+		}
+		serv.RequestHandlers = map[string]ssh.RequestHandler{
+			"tcpip-forward":        forwardHandler.HandleSSHRequest,
+			"cancel-tcpip-forward": forwardHandler.HandleSSHRequest,
+		} */
 		return nil
 	}
 }
@@ -78,7 +93,7 @@ func httpServe(handler WebTunnel, ctx ssh.Context, log *slog.Logger) (net.Listen
 	return listener, nil
 }
 
-func localForwardHandler(handler WebTunnel) LocalForwardFn {
+func remoteForwardHandler(handler WebTunnel) TcpIpForwardFn {
 	return func(srv *ssh.Server, conn *gossh.ServerConn, newChan gossh.NewChannel, ctx ssh.Context) {
 		check := &forwardedTCPPayload{}
 		err := gossh.Unmarshal(newChan.ExtraData(), check)
@@ -88,6 +103,42 @@ func localForwardHandler(handler WebTunnel) LocalForwardFn {
 				"error unmarshaling information",
 				"err", err,
 			)
+			return
+		}
+
+		log := logger.With(
+			"addr", check.Addr,
+			"port", check.Port,
+			"origAddr", check.OriginAddr,
+			"origPort", check.OriginPort,
+		)
+		log.Info("local forward request")
+
+		ch, reqs, err := newChan.Accept()
+		if err != nil {
+			log.Error("cannot accept new channel", "err", err)
+			return
+		}
+		fmt.Println(ch)
+		go gossh.DiscardRequests(reqs)
+		// defer ch.Close()
+
+		err = conn.Wait()
+		if err != nil {
+			log.Error("conn wait error", "err", err)
+		}
+	}
+}
+
+func localForwardHandler(handler WebTunnel) TcpIpForwardFn {
+	return func(srv *ssh.Server, conn *gossh.ServerConn, newChan gossh.NewChannel, ctx ssh.Context) {
+		logger := handler.GetLogger()
+		check := forwardedTCPPayload{}
+		err := gossh.Unmarshal(newChan.ExtraData(), &check)
+		if err != nil {
+			msg := "error parsing forward data"
+			logger.Error(msg, "err", err)
+			newChan.Reject(gossh.ConnectionFailed, msg+": "+err.Error())
 			return
 		}
 
