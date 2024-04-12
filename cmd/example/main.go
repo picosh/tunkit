@@ -16,24 +16,18 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
-type ctxPubkey struct{}
-
 func getPubkey(ctx ssh.Context) (ssh.PublicKey, error) {
-	pubkey, ok := ctx.Value(ctxPubkey{}).(ssh.PublicKey)
+	pubkey, ok := ctx.Value(ssh.ContextKeyPublicKey).(ssh.PublicKey)
 	if pubkey == nil || !ok {
 		return pubkey, fmt.Errorf("pubkey not set on `ssh.Context()` for connection")
 	}
 	return pubkey, nil
-}
-func setPubkey(ctx ssh.Context, pubkey ssh.PublicKey) {
-	ctx.SetValue(ctxPubkey{}, pubkey)
 }
 func keyForSha256(pk ssh.PublicKey) string {
 	return gossh.FingerprintSHA256(pk)
 }
 
 func authHandler(ctx ssh.Context, key ssh.PublicKey) bool {
-	setPubkey(ctx, key)
 	return true
 }
 
