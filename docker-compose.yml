@@ -3,17 +3,9 @@ version: '3.8'
 services:
   app:
     build: .
-    env_file:
-      - .env.prod
     ports:
       - 2222:2222
-      - "${IMGS_SSH_V4:-22}:2222"
-      - "${IMGS_SSH_V6:-[::1]:22}:2222"
+    volumes:
+      - ./ssh_data:/app/ssh_data
   registry:
     image: registry
-    environment:
-      REGISTRY_STORAGE_S3_ACCESSKEY: ${MINIO_ROOT_USER}
-      REGISTRY_STORAGE_S3_SECRETKEY: ${MINIO_ROOT_PASSWORD}
-    volumes:
-      - ./data/registry:/var/lib/registry
-      - ./config.yml:/etc/docker/registry/config.yml

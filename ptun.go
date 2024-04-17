@@ -1,12 +1,14 @@
 package ptun
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"github.com/charmbracelet/ssh"
@@ -23,6 +25,19 @@ type forwardedTCPPayload struct {
 type TcpIpForwardFn = func(*ssh.Server, *gossh.ServerConn, gossh.NewChannel, ssh.Context)
 type HttpHandlerFn = func(ctx ssh.Context) http.Handler
 
+type ctxRemoteConnectionsKey struct{}
+
+func getRemoteConnectionsCtx(ctx ssh.Context) (map[uint32]ssh.PublicKey, error) {
+	payload, ok := ctx.Value(ctxAddressKey{}).(map[uint32]ssh.PublicKey)
+	if payload == nil || !ok {
+		return payload, fmt.Errorf("address not set on `ssh.Context()` for connection")
+	}
+	return payload, nil
+}
+func setConnectionsCtx(ctx ssh.Context, address string) {
+	ctx.SetValue(ctxAddressKey{}, address)
+}
+
 type WebTunnel interface {
 	GetHttpHandler() HttpHandlerFn
 	CreateListener(ctx ssh.Context) (net.Listener, error)
@@ -30,8 +45,162 @@ type WebTunnel interface {
 	GetLogger() *slog.Logger
 }
 
+type remoteForwardRequest struct {
+	BindAddr string
+	BindPort uint32
+}
+
+type remoteForwardSuccess struct {
+	BindPort uint32
+}
+
+type remoteForwardCancelRequest struct {
+	BindAddr string
+	BindPort uint32
+}
+
+type remoteForwardChannelData struct {
+	DestAddr   string
+	DestPort   uint32
+	OriginAddr string
+	OriginPort uint32
+}
+
+type RemoteForwards struct {
+	Listener net.Listener
+	Pubkey   ssh.PublicKey
+}
+
+// ForwardedTCPHandler can be enabled by creating a ForwardedTCPHandler and
+// adding the HandleSSHRequest callback to the server's RequestHandlers under
+// tcpip-forward and cancel-tcpip-forward.
+type ForwardedTCPHandler struct {
+	Forwards map[string]RemoteForwards
+	sync.Mutex
+}
+
+var forwardedTCPChannelType = "forwarded-tcpip"
+
+func (h *ForwardedTCPHandler) GetListenersByPubkey(pubkey ssh.PublicKey) []net.Listener {
+	list := []net.Listener{}
+	for _, v := range h.Forwards {
+		if bytes.Equal(v.Pubkey.Marshal(), pubkey.Marshal()) {
+			list = append(list, v.Listener)
+		}
+	}
+	return list
+}
+
+func (h *ForwardedTCPHandler) HandleSSHRequest(ctx ssh.Context, srv *ssh.Server, req *gossh.Request) (bool, []byte) {
+	h.Lock()
+	if h.Forwards == nil {
+		h.Forwards = make(map[string]RemoteForwards)
+	}
+	h.Unlock()
+	conn := ctx.Value(ssh.ContextKeyConn).(*gossh.ServerConn)
+	switch req.Type {
+	case "tcpip-forward":
+		var reqPayload remoteForwardRequest
+		if err := gossh.Unmarshal(req.Payload, &reqPayload); err != nil {
+			// TODO: log parse failure
+			return false, []byte{}
+		}
+		addr := net.JoinHostPort(reqPayload.BindAddr, strconv.Itoa(int(reqPayload.BindPort)))
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			// TODO: log listen failure
+			return false, []byte{}
+		}
+		_, destPortStr, _ := net.SplitHostPort(ln.Addr().String())
+		destPort, _ := strconv.Atoi(destPortStr)
+		pubkey, _ := ctx.Value(ssh.ContextKeyPublicKey).(ssh.PublicKey)
+		remoteForward := RemoteForwards{
+			Listener: ln,
+			Pubkey:   pubkey,
+		}
+		fmt.Printf("%+v\n", remoteForward)
+		h.Lock()
+		h.Forwards[addr] = remoteForward
+		h.Unlock()
+		go func() {
+			<-ctx.Done()
+			h.Lock()
+			rf, ok := h.Forwards[addr]
+			h.Unlock()
+			if ok {
+				rf.Listener.Close()
+			}
+		}()
+		go func() {
+			for {
+				c, err := ln.Accept()
+				if err != nil {
+					// TODO: log accept failure
+					break
+				}
+				originAddr, orignPortStr, _ := net.SplitHostPort(c.RemoteAddr().String())
+				originPort, _ := strconv.Atoi(orignPortStr)
+				payload := gossh.Marshal(&remoteForwardChannelData{
+					DestAddr:   reqPayload.BindAddr,
+					DestPort:   uint32(destPort),
+					OriginAddr: originAddr,
+					OriginPort: uint32(originPort),
+				})
+				go func() {
+					ch, reqs, err := conn.OpenChannel(forwardedTCPChannelType, payload)
+					if err != nil {
+						c.Close()
+						return
+					}
+					go gossh.DiscardRequests(reqs)
+					go func() {
+						defer ch.Close()
+						defer c.Close()
+						io.Copy(ch, c)
+					}()
+					go func() {
+						defer ch.Close()
+						defer c.Close()
+						io.Copy(c, ch)
+					}()
+				}()
+			}
+			h.Lock()
+			delete(h.Forwards, addr)
+			h.Unlock()
+		}()
+		return true, gossh.Marshal(&remoteForwardSuccess{uint32(destPort)})
+
+	case "cancel-tcpip-forward":
+		var reqPayload remoteForwardCancelRequest
+		if err := gossh.Unmarshal(req.Payload, &reqPayload); err != nil {
+			// TODO: log parse failure
+			return false, []byte{}
+		}
+		addr := net.JoinHostPort(reqPayload.BindAddr, strconv.Itoa(int(reqPayload.BindPort)))
+		h.Lock()
+		rf, ok := h.Forwards[addr]
+		h.Unlock()
+		if ok {
+			rf.Listener.Close()
+		}
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+func WithRemoteForward(handler *ForwardedTCPHandler) ssh.Option {
+	return func(serv *ssh.Server) error {
+		serv.RequestHandlers = map[string]ssh.RequestHandler{
+			"tcpip-forward":        handler.HandleSSHRequest,
+			"cancel-tcpip-forward": handler.HandleSSHRequest,
+		}
+		return nil
+	}
+}
+
 func WithWebTunnel(handler WebTunnel) ssh.Option {
-	forwardHandler := &ssh.ForwardedTCPHandler{}
 	return func(serv *ssh.Server) error {
 		if serv.ChannelHandlers == nil {
 			serv.ChannelHandlers = map[string]ssh.ChannelHandler{
@@ -39,14 +208,6 @@ func WithWebTunnel(handler WebTunnel) ssh.Option {
 			}
 		}
 		serv.ChannelHandlers["direct-tcpip"] = localForwardHandler(handler)
-
-		serv.ReversePortForwardingCallback = func(ctx ssh.Context, bindHost string, bindPort uint32) bool {
-			return true
-		}
-		serv.RequestHandlers = map[string]ssh.RequestHandler{
-			"tcpip-forward":        forwardHandler.HandleSSHRequest,
-			"cancel-tcpip-forward": forwardHandler.HandleSSHRequest,
-		}
 		return nil
 	}
 }
