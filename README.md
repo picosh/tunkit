@@ -2,18 +2,6 @@
 
 Passwordless authentication for the browser using SSH tunnels.
 
-# Demo
-
-We use this library to support private sites through [pgs.sh](https://pgs.sh).
-
-Open a tunnel to pgs:
-
-```bash
-ssh -L 5000:localhost:80 -N hey-tunnels@pgs.sh
-```
-
-Then go to http://localhost:5000
-
 # How it works
 
 The end-user creates a local forward SSH tunnel to a service running `ptun`.

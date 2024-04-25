@@ -32,7 +32,7 @@ func (e *ErrorHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, e.Err.Error(), http.StatusInternalServerError)
 }
 
-func createMux(remoteHandler *ptun.ForwardedTCPHandler) func(ssh.Context) http.Handler {
+func createMux(remoteHandler ptun.WebHook) func(ssh.Context) http.Handler {
 	return func(ctx ssh.Context) http.Handler {
 		router := http.NewServeMux()
 		slug := ctx.User()
@@ -79,7 +79,7 @@ func createMux(remoteHandler *ptun.ForwardedTCPHandler) func(ssh.Context) http.H
 		proxy.ModifyResponse = func(r *http.Response) error {
 			log.Printf("%+v", r)
 
-			if slug != "" && r.Request.Method == http.MethodGet && strings.HasSuffix(r.Request.URL.Path, "_catalog") {
+			if r.Request.Method == http.MethodGet && strings.HasSuffix(r.Request.URL.Path, "_catalog") {
 				b, err := io.ReadAll(r.Body)
 				if err != nil {
 					return err
@@ -120,7 +120,7 @@ func createMux(remoteHandler *ptun.ForwardedTCPHandler) func(ssh.Context) http.H
 				r.Body = io.NopCloser(jsonBuf)
 			}
 
-			if slug != "" && r.Request.Method == http.MethodGet && (strings.Contains(r.Request.URL.Path, "/tags/") || strings.Contains(r.Request.URL.Path, "/manifests/")) {
+			if r.Request.Method == http.MethodGet && (strings.Contains(r.Request.URL.Path, "/tags/") || strings.Contains(r.Request.URL.Path, "/manifests/")) {
 				splitPath := strings.Split(r.Request.URL.Path, "/")
 
 				if len(splitPath) > 1 {
@@ -163,55 +163,25 @@ func createMux(remoteHandler *ptun.ForwardedTCPHandler) func(ssh.Context) http.H
 			}
 
 			if r.Request.Method == http.MethodPut && strings.Contains(r.Request.URL.Path, "/manifests/") {
-				fmt.Println("===")
-				fmt.Println(r.StatusCode)
-				b, err := io.ReadAll(r.Body)
-				if err != nil {
-					return err
-				}
-
-				fmt.Println("ASDASDASDASDASD")
-				err = r.Body.Close()
-				if err != nil {
-					return err
-				}
-
-				fmt.Println("?ZZZZZ")
-				var data map[string]any
-				err = json.Unmarshal(b, &data)
-				if err != nil {
-					return err
-				}
-				fmt.Println("GETTING DATA")
-				fmt.Println(data)
-
-				// we got the data
-				forwards := remoteHandler.Forwards
+				digest := r.Header.Get("Docker-Content-Digest")
+				forwards := remoteHandler.GetForwards()
 				for _, rf := range forwards {
 					addr := rf.Listener.Addr()
-					fmt.Println("ADDREEEEE")
-					fmt.Println(addr.String())
-					_, err := http.Get("http://" + addr.String())
+					furl := fmt.Sprintf(
+						"http://%s?path=%s&digest=%s",
+						addr.String(),
+						url.QueryEscape(r.Request.URL.Path),
+						url.QueryEscape(digest),
+					)
+					_, err := http.Get(furl)
 					if err != nil {
-						fmt.Println(err)
+						log.Println(err)
 					}
-					fmt.Println("MADE IT HERE")
 				}
-
-				newB, err := json.Marshal(data)
-				if err != nil {
-					return err
-				}
-
-				jsonBuf := bytes.NewBuffer(newB)
-
-				r.ContentLength = int64(jsonBuf.Len())
-				r.Header.Set("Content-Length", strconv.FormatInt(r.ContentLength, 10))
-				r.Body = io.NopCloser(jsonBuf)
 			}
 
 			locationHeader := r.Header.Get("location")
-			if slug != "" && strings.Contains(locationHeader, fmt.Sprintf("/v2/%s", slug)) {
+			if strings.Contains(locationHeader, fmt.Sprintf("/v2/%s", slug)) {
 				r.Header.Set("location", strings.ReplaceAll(locationHeader, fmt.Sprintf("/v2/%s", slug), "/v2"))
 			}
 
@@ -239,7 +209,9 @@ func main() {
 	}
 	logger := slog.Default()
 
-	remoteHandler := &ptun.ForwardedTCPHandler{}
+	remoteHandler := &ptun.WebHookHandler{
+		Logger: logger,
+	}
 	mux := createMux(remoteHandler)
 	s, err := wish.NewServer(
 		wish.WithAddress(fmt.Sprintf("%s:%s", host, port)),
