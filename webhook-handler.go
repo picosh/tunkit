@@ -48,6 +48,12 @@ type WebHookHandler struct {
 	sync.Mutex
 }
 
+func NewWebHookHandler(logger *slog.Logger) *WebHookHandler {
+	return &WebHookHandler{
+		Logger: logger,
+	}
+}
+
 var forwardedTCPChannelType = "forwarded-tcpip"
 
 func (h *WebHookHandler) GetForwards() []*RemoteForwards {

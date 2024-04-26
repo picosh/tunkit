@@ -13,7 +13,7 @@ type WebHook interface {
 	HandleRequest(ctx ssh.Context, srv *ssh.Server, req *gossh.Request) (bool, []byte)
 }
 
-func WithRemoteForward(handler WebHook) ssh.Option {
+func WithWebHook(handler WebHook) ssh.Option {
 	return func(serv *ssh.Server) error {
 		serv.RequestHandlers = map[string]ssh.RequestHandler{
 			"tcpip-forward":        handler.HandleRequest,

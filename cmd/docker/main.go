@@ -209,16 +209,15 @@ func main() {
 	}
 	logger := slog.Default()
 
-	remoteHandler := &ptun.WebHookHandler{
-		Logger: logger,
-	}
-	mux := createMux(remoteHandler)
+	webhook := ptun.NewWebHookHandler(logger)
+	mux := createMux(webhook)
+	webtunnel := ptun.NewWebTunnelHandler(mux, logger)
 	s, err := wish.NewServer(
 		wish.WithAddress(fmt.Sprintf("%s:%s", host, port)),
 		wish.WithHostKeyPath("ssh_data/term_info_ed25519"),
 		wish.WithAuthorizedKeys(keyPath),
-		ptun.WithWebTunnel(ptun.NewWebTunnelHandler(mux, logger)),
-		ptun.WithRemoteForward(remoteHandler),
+		ptun.WithWebTunnel(webtunnel),
+		ptun.WithWebHook(webhook),
 	)
 
 	if err != nil {
