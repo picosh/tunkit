@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 
 	"github.com/charmbracelet/ssh"
@@ -38,10 +39,6 @@ func (wt *WebTunnelHandler) GetLogger() *slog.Logger {
 	return wt.Logger
 }
 
-func (wt *WebTunnelHandler) GetHttpHandler() HttpHandlerFn {
-	return wt.HttpHandler
-}
-
 func (wt *WebTunnelHandler) CreateListener(ctx ssh.Context) (net.Listener, error) {
 	tempFile, err := os.CreateTemp("", "")
 	if err != nil {
@@ -57,7 +54,6 @@ func (wt *WebTunnelHandler) CreateListener(ctx ssh.Context) (net.Listener, error
 		return nil, err
 	}
 	setAddressCtx(ctx, address)
-	setListenerCtx(ctx, connListener)
 
 	return connListener, nil
 }
@@ -69,4 +65,8 @@ func (wt *WebTunnelHandler) CreateConn(ctx ssh.Context) (net.Conn, error) {
 	}
 
 	return net.Dial("unix", address)
+}
+
+func (wt *WebTunnelHandler) Serve(listener net.Listener, ctx ssh.Context) error {
+	return http.Serve(listener, wt.HttpHandler(ctx))
 }

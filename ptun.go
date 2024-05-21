@@ -24,9 +24,9 @@ type LocalForwardFn = func(*ssh.Server, *gossh.ServerConn, gossh.NewChannel, ssh
 type HttpHandlerFn = func(ctx ssh.Context) http.Handler
 
 type WebTunnel interface {
-	GetHttpHandler() HttpHandlerFn
-	CreateListener(ctx ssh.Context) (net.Listener, error)
 	CreateConn(ctx ssh.Context) (net.Conn, error)
+	CreateListener(ctx ssh.Context) (net.Listener, error)
+	Serve(l net.Listener, ctx ssh.Context) error
 	GetLogger() *slog.Logger
 }
 
@@ -55,7 +55,7 @@ func setListenerCtx(ctx ssh.Context, listener net.Listener) {
 	ctx.SetValue(ctxListenerKey{}, listener)
 }
 
-func httpServe(handler WebTunnel, ctx ssh.Context, log *slog.Logger) (net.Listener, error) {
+func tcpServe(handler WebTunnel, ctx ssh.Context, log *slog.Logger) (net.Listener, error) {
 	cached, _ := getListenerCtx(ctx)
 	if cached != nil {
 		return cached, nil
@@ -68,8 +68,7 @@ func httpServe(handler WebTunnel, ctx ssh.Context, log *slog.Logger) (net.Listen
 	setListenerCtx(ctx, listener)
 
 	go func() {
-		httpHandler := handler.GetHttpHandler()
-		err := http.Serve(listener, httpHandler(ctx))
+		err := handler.Serve(listener, ctx)
 		if err != nil {
 			log.Error("unable to serve http content", "err", err)
 		}
@@ -106,7 +105,7 @@ func localForwardHandler(handler WebTunnel) LocalForwardFn {
 		}
 		go gossh.DiscardRequests(reqs)
 
-		listener, err := httpServe(handler, ctx, log)
+		listener, err := tcpServe(handler, ctx, log)
 		if err != nil {
 			log.Info("unable to create listener", "err", err)
 			return
