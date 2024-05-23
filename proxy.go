@@ -1,7 +1,6 @@
 package ptun
 
 import (
-	"log/slog"
 	"net"
 
 	"github.com/charmbracelet/ssh"
@@ -9,15 +8,7 @@ import (
 )
 
 type ProxyTunnelHandler struct {
-	Logger *slog.Logger
-}
-
-func (tun *ProxyTunnelHandler) GetLogger() *slog.Logger {
-	return tun.Logger
-}
-
-func (tun *ProxyTunnelHandler) CreateListener(ctx ssh.Context) (net.Listener, error) {
-	return nil, nil
+	*WebTunnelHandler
 }
 
 func (tun *ProxyTunnelHandler) CreateConn(ctx ssh.Context) (net.Conn, error) {

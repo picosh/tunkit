@@ -10,8 +10,9 @@ import (
 	"github.com/charmbracelet/ssh"
 )
 
-type ctxAddressKey struct{}
 type HttpHandlerFn = func(ctx ssh.Context) http.Handler
+
+type ctxAddressKey struct{}
 
 func getAddressCtx(ctx ssh.Context) (string, error) {
 	address, ok := ctx.Value(ctxAddressKey{}).(string)
