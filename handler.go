@@ -11,6 +11,7 @@ import (
 )
 
 type ctxAddressKey struct{}
+type HttpHandlerFn = func(ctx ssh.Context) http.Handler
 
 func getAddressCtx(ctx ssh.Context) (string, error) {
 	address, ok := ctx.Value(ctxAddressKey{}).(string)

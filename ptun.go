@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"net/http"
 	"sync"
 
 	"github.com/charmbracelet/ssh"
@@ -21,7 +20,6 @@ type forwardedTCPPayload struct {
 }
 
 type LocalForwardFn = func(*ssh.Server, *gossh.ServerConn, gossh.NewChannel, ssh.Context)
-type HttpHandlerFn = func(ctx ssh.Context) http.Handler
 
 type WebTunnel interface {
 	CreateConn(ctx ssh.Context) (net.Conn, error)
@@ -125,7 +123,9 @@ func localForwardHandler(handler WebTunnel) LocalForwardFn {
 
 			go func() {
 				defer wg.Done()
-				defer ch.CloseWrite()
+				defer func() {
+					_ = ch.CloseWrite()
+				}()
 				defer downConn.Close()
 				_, err := io.Copy(ch, downConn)
 				if err != nil {
