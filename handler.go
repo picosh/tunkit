@@ -63,6 +63,13 @@ func (wt *WebTunnelHandler) CreateListener(ctx ssh.Context) (net.Listener, error
 }
 
 func (wt *WebTunnelHandler) CreateConn(ctx ssh.Context) (net.Conn, error) {
+	listener, err := httpServe(wt, ctx, wt.GetLogger())
+	if err != nil {
+		wt.GetLogger().Info("unable to create listener", "err", err)
+		return nil, err
+	}
+	defer listener.Close()
+
 	address, err := getAddressCtx(ctx)
 	if err != nil {
 		return nil, err
