@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -o errexit
 
-PORT="${PORT:-5000}"
+PORT="${PORT:-1338}"
 HOST="${HOST:-imgs.sh}"
 
 echo -e "$PRIVATE_KEY" > ./key
@@ -12,4 +12,4 @@ exec autossh -M 0 -N \
   -o IdentitiesOnly=yes \
   -o StrictHostKeyChecking=no \
   -i ./key \
-  "$USERNAME"@"$HOST"
+  "$HOST"
