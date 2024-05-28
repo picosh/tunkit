@@ -71,11 +71,13 @@ func CliMiddleware(handler ptun.PubSub) wish.Middleware {
 
 				for _, rf := range forwards {
 					addr := rf.Listener.Addr()
+					pk := keyForSha256(rf.Pubkey)
 					logger := log.With(
-						"pubkey", keyForSha256(rf.Pubkey),
+						"pubkey", pk,
 						"addr", addr,
 					)
 					logger.Info("listener")
+					wish.Println(sesh, fmt.Sprintf("addr:%s pubkey:%s", addr, pk))
 				}
 				return
 			} else {
