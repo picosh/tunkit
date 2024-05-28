@@ -79,7 +79,9 @@ func localForwardHandler(handler Tunnel) LocalForwardFn {
 
 			go func() {
 				defer wg.Done()
-				defer ch.CloseWrite()
+				defer func() {
+					_ = ch.CloseWrite()
+				}()
 				defer downConn.Close()
 				_, err := io.Copy(ch, downConn)
 				if err != nil {
