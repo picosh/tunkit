@@ -139,12 +139,12 @@ func (h *PubSubHandler) HandleRequest(ctx ssh.Context, srv *ssh.Server, req *gos
 					go func() {
 						defer ch.Close()
 						defer c.Close()
-						io.Copy(ch, c)
+						_, _ = io.Copy(ch, c)
 					}()
 					go func() {
 						defer ch.Close()
 						defer c.Close()
-						io.Copy(c, ch)
+						_, _ = io.Copy(c, ch)
 					}()
 				}()
 			}
