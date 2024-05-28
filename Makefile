@@ -14,6 +14,11 @@ build-docker:
 	go build -o ./build/docker ./cmd/docker
 .PHONY: build-docker
 
+build-pubsub:
+	go build -o ./build/pub ./cmd/pubsub/pub
+	go build -o ./build/sub ./cmd/pubsub/sub
+.PHONY: build-pubsub
+
 tunnel:
 	ssh -L 0.0.0.0:5000:localhost:80 \
 		-p 2222 \

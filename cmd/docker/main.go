@@ -32,146 +32,166 @@ func (e *ErrorHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, e.Err.Error(), http.StatusInternalServerError)
 }
 
-func serveMux(ctx ssh.Context) http.Handler {
-	router := http.NewServeMux()
-	slug := ctx.User()
+func createMux(remoteHandler ptun.WebHook) func(ssh.Context) http.Handler {
+	return func(ctx ssh.Context) http.Handler {
+		router := http.NewServeMux()
+		slug := ctx.User()
 
-	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
-		Scheme: "http",
-		Host:   "registry:5000",
-	})
+		proxy := httputil.NewSingleHostReverseProxy(&url.URL{
+			Scheme: "http",
+			Host:   "registry:5000",
+		})
 
-	oldDirector := proxy.Director
+		oldDirector := proxy.Director
 
-	proxy.Director = func(r *http.Request) {
-		log.Printf("%+v", r)
-		oldDirector(r)
+		proxy.Director = func(r *http.Request) {
+			log.Printf("%+v", r)
+			oldDirector(r)
 
-		if strings.HasSuffix(r.URL.Path, "_catalog") || r.URL.Path == "/v2" || r.URL.Path == "/v2/" {
-			return
-		}
+			if strings.HasSuffix(r.URL.Path, "_catalog") || r.URL.Path == "/v2" || r.URL.Path == "/v2/" {
+				return
+			}
 
-		fullPath := strings.TrimPrefix(r.URL.Path, "/v2")
+			fullPath := strings.TrimPrefix(r.URL.Path, "/v2")
 
-		newPath, err := url.JoinPath("/v2", slug, fullPath)
-		if err != nil {
-			return
-		}
-
-		r.URL.Path = newPath
-
-		query := r.URL.Query()
-
-		if query.Has("from") {
-			joinedFrom, err := url.JoinPath(slug, query.Get("from"))
+			newPath, err := url.JoinPath("/v2", slug, fullPath)
 			if err != nil {
 				return
 			}
-			query.Set("from", joinedFrom)
 
-			r.URL.RawQuery = query.Encode()
-		}
+			r.URL.Path = newPath
 
-		log.Printf("%+v", r)
-	}
+			query := r.URL.Query()
 
-	proxy.ModifyResponse = func(r *http.Response) error {
-		log.Printf("%+v", r)
-
-		if slug != "" && r.Request.Method == http.MethodGet && strings.HasSuffix(r.Request.URL.Path, "_catalog") {
-			b, err := io.ReadAll(r.Body)
-			if err != nil {
-				return err
-			}
-
-			err = r.Body.Close()
-			if err != nil {
-				return err
-			}
-
-			var data map[string]any
-			err = json.Unmarshal(b, &data)
-			if err != nil {
-				return err
-			}
-
-			var newRepos []string
-
-			if repos, ok := data["repositories"].([]any); ok {
-				for _, repo := range repos {
-					if repoStr, ok := repo.(string); ok && strings.HasPrefix(repoStr, slug) {
-						newRepos = append(newRepos, strings.Replace(repoStr, fmt.Sprintf("%s/", slug), "", 1))
-					}
+			if query.Has("from") {
+				joinedFrom, err := url.JoinPath(slug, query.Get("from"))
+				if err != nil {
+					return
 				}
+				query.Set("from", joinedFrom)
+
+				r.URL.RawQuery = query.Encode()
 			}
 
-			data["repositories"] = newRepos
-
-			newB, err := json.Marshal(data)
-			if err != nil {
-				return err
-			}
-
-			jsonBuf := bytes.NewBuffer(newB)
-
-			r.ContentLength = int64(jsonBuf.Len())
-			r.Header.Set("Content-Length", strconv.FormatInt(r.ContentLength, 10))
-			r.Body = io.NopCloser(jsonBuf)
+			log.Printf("%+v", r)
 		}
 
-		if slug != "" && r.Request.Method == http.MethodGet && (strings.Contains(r.Request.URL.Path, "/tags/") || strings.Contains(r.Request.URL.Path, "/manifests/")) {
-			splitPath := strings.Split(r.Request.URL.Path, "/")
+		proxy.ModifyResponse = func(r *http.Response) error {
+			log.Printf("%+v", r)
 
-			if len(splitPath) > 1 {
-				ele := splitPath[len(splitPath)-2]
-				if ele == "tags" || ele == "manifests" {
-					b, err := io.ReadAll(r.Body)
-					if err != nil {
-						return err
-					}
+			if r.Request.Method == http.MethodGet && strings.HasSuffix(r.Request.URL.Path, "_catalog") {
+				b, err := io.ReadAll(r.Body)
+				if err != nil {
+					return err
+				}
 
-					err = r.Body.Close()
-					if err != nil {
-						return err
-					}
+				err = r.Body.Close()
+				if err != nil {
+					return err
+				}
 
-					var data map[string]any
-					err = json.Unmarshal(b, &data)
-					if err != nil {
-						return err
-					}
+				var data map[string]any
+				err = json.Unmarshal(b, &data)
+				if err != nil {
+					return err
+				}
 
-					if name, ok := data["name"].(string); ok {
-						if strings.HasPrefix(name, slug) {
-							data["name"] = strings.Replace(name, fmt.Sprintf("%s/", slug), "", 1)
+				var newRepos []string
+
+				if repos, ok := data["repositories"].([]any); ok {
+					for _, repo := range repos {
+						if repoStr, ok := repo.(string); ok && strings.HasPrefix(repoStr, slug) {
+							newRepos = append(newRepos, strings.Replace(repoStr, fmt.Sprintf("%s/", slug), "", 1))
 						}
 					}
+				}
 
-					newB, err := json.Marshal(data)
-					if err != nil {
-						return err
+				data["repositories"] = newRepos
+
+				newB, err := json.Marshal(data)
+				if err != nil {
+					return err
+				}
+
+				jsonBuf := bytes.NewBuffer(newB)
+
+				r.ContentLength = int64(jsonBuf.Len())
+				r.Header.Set("Content-Length", strconv.FormatInt(r.ContentLength, 10))
+				r.Body = io.NopCloser(jsonBuf)
+			}
+
+			if r.Request.Method == http.MethodGet && (strings.Contains(r.Request.URL.Path, "/tags/") || strings.Contains(r.Request.URL.Path, "/manifests/")) {
+				splitPath := strings.Split(r.Request.URL.Path, "/")
+
+				if len(splitPath) > 1 {
+					ele := splitPath[len(splitPath)-2]
+					if ele == "tags" || ele == "manifests" {
+						b, err := io.ReadAll(r.Body)
+						if err != nil {
+							return err
+						}
+
+						err = r.Body.Close()
+						if err != nil {
+							return err
+						}
+
+						var data map[string]any
+						err = json.Unmarshal(b, &data)
+						if err != nil {
+							return err
+						}
+
+						if name, ok := data["name"].(string); ok {
+							if strings.HasPrefix(name, slug) {
+								data["name"] = strings.Replace(name, fmt.Sprintf("%s/", slug), "", 1)
+							}
+						}
+
+						newB, err := json.Marshal(data)
+						if err != nil {
+							return err
+						}
+
+						jsonBuf := bytes.NewBuffer(newB)
+
+						r.ContentLength = int64(jsonBuf.Len())
+						r.Header.Set("Content-Length", strconv.FormatInt(r.ContentLength, 10))
+						r.Body = io.NopCloser(jsonBuf)
 					}
-
-					jsonBuf := bytes.NewBuffer(newB)
-
-					r.ContentLength = int64(jsonBuf.Len())
-					r.Header.Set("Content-Length", strconv.FormatInt(r.ContentLength, 10))
-					r.Body = io.NopCloser(jsonBuf)
 				}
 			}
+
+			if r.Request.Method == http.MethodPut && strings.Contains(r.Request.URL.Path, "/manifests/") {
+				digest := r.Header.Get("Docker-Content-Digest")
+				forwards := remoteHandler.GetForwards()
+				for _, rf := range forwards {
+					addr := rf.Listener.Addr()
+					furl := fmt.Sprintf(
+						"http://%s?path=%s&digest=%s",
+						addr.String(),
+						url.QueryEscape(r.Request.URL.Path),
+						url.QueryEscape(digest),
+					)
+					_, err := http.Get(furl)
+					if err != nil {
+						log.Println(err)
+					}
+				}
+			}
+
+			locationHeader := r.Header.Get("location")
+			if strings.Contains(locationHeader, fmt.Sprintf("/v2/%s", slug)) {
+				r.Header.Set("location", strings.ReplaceAll(locationHeader, fmt.Sprintf("/v2/%s", slug), "/v2"))
+			}
+
+			return nil
 		}
 
-		locationHeader := r.Header.Get("location")
-		if slug != "" && strings.Contains(locationHeader, fmt.Sprintf("/v2/%s", slug)) {
-			r.Header.Set("location", strings.ReplaceAll(locationHeader, fmt.Sprintf("/v2/%s", slug), "/v2"))
-		}
+		router.HandleFunc("/", proxy.ServeHTTP)
 
-		return nil
+		return router
 	}
-
-	router.HandleFunc("/", proxy.ServeHTTP)
-
-	return router
 }
 
 func main() {
@@ -189,11 +209,15 @@ func main() {
 	}
 	logger := slog.Default()
 
+	webhook := ptun.NewWebHookHandler(logger)
+	mux := createMux(webhook)
+	webtunnel := ptun.NewWebTunnelHandler(mux, logger)
 	s, err := wish.NewServer(
 		wish.WithAddress(fmt.Sprintf("%s:%s", host, port)),
 		wish.WithHostKeyPath("ssh_data/term_info_ed25519"),
 		wish.WithAuthorizedKeys(keyPath),
-		ptun.WithWebTunnel(ptun.NewWebTunnelHandler(serveMux, logger)),
+		ptun.WithWebTunnel(webtunnel),
+		ptun.WithWebHook(webhook),
 	)
 
 	if err != nil {
