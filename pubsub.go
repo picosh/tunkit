@@ -7,13 +7,13 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
-type WebHook interface {
+type PubSub interface {
 	GetLogger() *slog.Logger
 	GetForwards() []*RemoteForwards
 	HandleRequest(ctx ssh.Context, srv *ssh.Server, req *gossh.Request) (bool, []byte)
 }
 
-func WithWebHook(handler WebHook) ssh.Option {
+func WithPubSub(handler PubSub) ssh.Option {
 	return func(serv *ssh.Server) error {
 		serv.RequestHandlers = map[string]ssh.RequestHandler{
 			"tcpip-forward":        handler.HandleRequest,

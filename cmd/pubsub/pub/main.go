@@ -23,12 +23,12 @@ func main() {
 	port := "2222"
 
 	logger := slog.Default()
-	handler := ptun.NewWebHookHandler(logger)
+	handler := ptun.NewPubSubHandler(logger)
 	s, err := wish.NewServer(
 		wish.WithAddress(fmt.Sprintf("%s:%s", host, port)),
 		wish.WithHostKeyPath("ssh_data/term_info_ed25519"),
 		wish.WithPublicKeyAuth(authHandler),
-		ptun.WithWebHook(handler),
+		ptun.WithPubSub(handler),
 		wish.WithMiddleware(CliMiddleware(handler)),
 	)
 

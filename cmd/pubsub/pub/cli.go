@@ -15,7 +15,7 @@ func keyForSha256(pk ssh.PublicKey) string {
 	return gossh.FingerprintSHA256(pk)
 }
 
-func CliMiddleware(handler ptun.WebHook) wish.Middleware {
+func CliMiddleware(handler ptun.PubSub) wish.Middleware {
 	log := handler.GetLogger()
 
 	return func(next ssh.Handler) ssh.Handler {

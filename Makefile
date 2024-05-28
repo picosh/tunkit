@@ -29,8 +29,8 @@ tunnel:
 .PHONY: tunnel
 
 tunnel-prod:
-	ssh -L 0.0.0.0:5000:localhost:80 -N imgs.sh
+	ssh -L 0.0.0.0:1338:localhost:1338 -N imgs.sh
 	# docker pull ubuntu
-	# docker tag ubuntu localhost:5000/ubuntu
-	# docker push localhost:5000/ubuntu
+	# docker tag ubuntu localhost:1338/ubuntu
+	# docker push localhost:1338/ubuntu
 .PHONY: tunnel

@@ -39,32 +39,32 @@ type RemoteForwards struct {
 	Pubkey   ssh.PublicKey
 }
 
-// WebHookHandler can be enabled by creating a WebHookHandler and
+// PubSubHandler can be enabled by creating a PubSubHandler and
 // adding the HandleSSHRequest callback to the server's RequestHandlers under
 // tcpip-forward and cancel-tcpip-forward.
-type WebHookHandler struct {
-	forwards map[string]*RemoteForwards
-	Logger   *slog.Logger
+type PubSubHandler struct {
+	Logger *slog.Logger
 	sync.Mutex
+	forwards map[string]*RemoteForwards
 }
 
-func NewWebHookHandler(logger *slog.Logger) *WebHookHandler {
-	return &WebHookHandler{
+func NewPubSubHandler(logger *slog.Logger) *PubSubHandler {
+	return &PubSubHandler{
 		Logger: logger,
 	}
 }
 
 var forwardedTCPChannelType = "forwarded-tcpip"
 
-func (h *WebHookHandler) GetForwards() []*RemoteForwards {
+func (h *PubSubHandler) GetForwards() []*RemoteForwards {
 	return maps.Values(h.forwards)
 }
 
-func (h *WebHookHandler) GetLogger() *slog.Logger {
+func (h *PubSubHandler) GetLogger() *slog.Logger {
 	return h.Logger
 }
 
-func (h *WebHookHandler) GetForwardsByPubkey(pubkey ssh.PublicKey) []net.Listener {
+func (h *PubSubHandler) GetForwardsByPubkey(pubkey ssh.PublicKey) []net.Listener {
 	list := []net.Listener{}
 	for _, v := range h.forwards {
 		if bytes.Equal(v.Pubkey.Marshal(), pubkey.Marshal()) {
@@ -74,7 +74,7 @@ func (h *WebHookHandler) GetForwardsByPubkey(pubkey ssh.PublicKey) []net.Listene
 	return list
 }
 
-func (h *WebHookHandler) HandleRequest(ctx ssh.Context, srv *ssh.Server, req *gossh.Request) (bool, []byte) {
+func (h *PubSubHandler) HandleRequest(ctx ssh.Context, srv *ssh.Server, req *gossh.Request) (bool, []byte) {
 	logger := h.GetLogger()
 	h.Lock()
 	if h.forwards == nil {
