@@ -13,7 +13,7 @@ func main() {
 
 	router := http.NewServeMux()
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		body := fmt.Sprintf("received event: (path:%s, msg:%s)", r.URL.Path, r.URL.Query().Get("msg"))
+		body := fmt.Sprintf("received event: (path:%s, query:%s)", r.URL.Path, r.URL.Query())
 		_, err := w.Write([]byte(body))
 		logger.Info("response", "body", body)
 		if err != nil {
