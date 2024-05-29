@@ -66,6 +66,10 @@ func (h *handler) GetLogger() *slog.Logger {
 	return h.logger
 }
 
+func (h *handler) Close(ctx ssh.Context) error {
+	return nil
+}
+
 var _ ptun.Tunnel = &handler{}
 
 func main() {

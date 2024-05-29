@@ -23,6 +23,7 @@ type LocalForwardFn = func(*ssh.Server, *gossh.ServerConn, gossh.NewChannel, ssh
 type Tunnel interface {
 	CreateConn(ctx ssh.Context) (net.Conn, error)
 	GetLogger() *slog.Logger
+	Close(ctx ssh.Context) error
 }
 
 func WithTunnel(handler Tunnel) ssh.Option {
@@ -108,6 +109,10 @@ func localForwardHandler(handler Tunnel) LocalForwardFn {
 		err = conn.Wait()
 		if err != nil {
 			log.Error("conn wait error", "err", err)
+		}
+		err = handler.Close(ctx)
+		if err != nil {
+			log.Error("tunnel handler error", "err", err)
 		}
 	}
 }
