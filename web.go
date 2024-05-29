@@ -16,6 +16,7 @@ type WebTunnel interface {
 	CreateListener(ctx ssh.Context) (net.Listener, error)
 	CreateConn(ctx ssh.Context) (net.Conn, error)
 	GetLogger() *slog.Logger
+	Close(ctx ssh.Context) error
 }
 
 func WithWebTunnel(handler WebTunnel) ssh.Option {
@@ -51,7 +52,7 @@ func httpServe(handler WebTunnel, ctx ssh.Context, log *slog.Logger) (net.Listen
 		httpHandler := handler.GetHttpHandler()
 		err := http.Serve(listener, httpHandler(ctx))
 		if err != nil {
-			log.Error("unable to serve http content", "err", err)
+			log.Error("serving http content", "err", err)
 		}
 	}()
 

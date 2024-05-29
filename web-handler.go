@@ -42,6 +42,20 @@ func (wt *WebTunnelHandler) GetHttpHandler() HttpHandlerFn {
 	return wt.HttpHandler
 }
 
+func (wt *WebTunnelHandler) Close(ctx ssh.Context) error {
+	listener, err := getListenerCtx(ctx)
+	if err != nil {
+		return err
+	}
+
+	if listener != nil {
+		_ = listener.Close()
+		setListenerCtx(ctx, nil)
+	}
+
+	return nil
+}
+
 func (wt *WebTunnelHandler) CreateListener(ctx ssh.Context) (net.Listener, error) {
 	tempFile, err := os.CreateTemp("", "")
 	if err != nil {
@@ -63,12 +77,11 @@ func (wt *WebTunnelHandler) CreateListener(ctx ssh.Context) (net.Listener, error
 }
 
 func (wt *WebTunnelHandler) CreateConn(ctx ssh.Context) (net.Conn, error) {
-	listener, err := httpServe(wt, ctx, wt.GetLogger())
+	_, err := httpServe(wt, ctx, wt.GetLogger())
 	if err != nil {
 		wt.GetLogger().Info("unable to create listener", "err", err)
 		return nil, err
 	}
-	defer listener.Close()
 
 	address, err := getAddressCtx(ctx)
 	if err != nil {

@@ -9,3 +9,5 @@ services:
       - ./ssh_data:/app/ssh_data
   registry:
     image: registry
+    ports:
+      - 5000:5000
