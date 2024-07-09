@@ -1,4 +1,4 @@
-package ptun
+package tunkit
 
 import (
 	"log/slog"

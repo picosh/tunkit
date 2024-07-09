@@ -13,7 +13,7 @@ import (
 
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
-	"github.com/picosh/ptun"
+	"github.com/picosh/tunkit"
 	gossh "golang.org/x/crypto/ssh"
 )
 
@@ -70,7 +70,7 @@ func (h *handler) Close(ctx ssh.Context) error {
 	return nil
 }
 
-var _ ptun.Tunnel = &handler{}
+var _ tunkit.Tunnel = &handler{}
 
 func main() {
 	host := os.Getenv("SSH_HOST")
@@ -91,7 +91,7 @@ func main() {
 		wish.WithAddress(fmt.Sprintf("%s:%s", host, port)),
 		wish.WithHostKeyPath("ssh_data/term_info_ed25519"),
 		wish.WithAuthorizedKeys(keyPath),
-		ptun.WithTunnel(&handler{
+		tunkit.WithTunnel(&handler{
 			logger: logger,
 		}),
 	)

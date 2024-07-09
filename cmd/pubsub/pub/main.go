@@ -11,7 +11,7 @@ import (
 
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
-	"github.com/picosh/ptun"
+	"github.com/picosh/tunkit"
 )
 
 func authHandler(ctx ssh.Context, key ssh.PublicKey) bool {
@@ -23,12 +23,12 @@ func main() {
 	port := "2222"
 
 	logger := slog.Default()
-	handler := ptun.NewPubSubHandler(logger)
+	handler := tunkit.NewPubSubHandler(logger)
 	s, err := wish.NewServer(
 		wish.WithAddress(fmt.Sprintf("%s:%s", host, port)),
 		wish.WithHostKeyPath("ssh_data/term_info_ed25519"),
 		wish.WithPublicKeyAuth(authHandler),
-		ptun.WithPubSub(handler),
+		tunkit.WithPubSub(handler),
 		wish.WithMiddleware(CliMiddleware(handler)),
 	)
 

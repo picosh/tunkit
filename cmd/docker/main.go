@@ -20,7 +20,7 @@ import (
 
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
-	"github.com/picosh/ptun"
+	"github.com/picosh/tunkit"
 )
 
 type ErrorHandler struct {
@@ -193,7 +193,7 @@ func main() {
 		wish.WithAddress(fmt.Sprintf("%s:%s", host, port)),
 		wish.WithHostKeyPath("ssh_data/term_info_ed25519"),
 		wish.WithAuthorizedKeys(keyPath),
-		ptun.WithWebTunnel(ptun.NewWebTunnelHandler(serveMux, logger)),
+		tunkit.WithWebTunnel(tunkit.NewWebTunnelHandler(serveMux, logger)),
 	)
 
 	if err != nil {

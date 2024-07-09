@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
-	"github.com/picosh/ptun"
+	"github.com/picosh/tunkit"
 	gossh "golang.org/x/crypto/ssh"
 )
 
@@ -15,7 +15,7 @@ func keyForSha256(pk ssh.PublicKey) string {
 	return gossh.FingerprintSHA256(pk)
 }
 
-func CliMiddleware(handler ptun.PubSub) wish.Middleware {
+func CliMiddleware(handler tunkit.PubSub) wish.Middleware {
 	log := handler.GetLogger()
 
 	return func(next ssh.Handler) ssh.Handler {
