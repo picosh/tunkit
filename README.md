@@ -7,10 +7,10 @@
 # Passwordless authentication
 
 The end-user creates a local forward SSH tunnel to a service running `tunkit`.
-`tunkit` spins up a dedicated web service for that tunnel -- using a unix socket.
-Then the user can access that web service using `localhost`. The web service can
-then access the SSH context in order to know who the user is and what they are
-authorized to do within the web service.
+`tunkit` spins up a dedicated web service for that tunnel -- using a unix
+socket. Then the user can access that web service using `localhost`. The web
+service can then access the SSH context in order to know who the user is and
+what they are authorized to do within the web service.
 
 ## Why?
 
@@ -35,20 +35,26 @@ Use an SSH tunnels for "webhooks":
 
 ## Why?
 
-The biggest benefit is the user's http server is not public.  There's zero
+The biggest benefit is the user's http server is not public. There's zero
 concern for malicious actors or bots trying to hit a user's event endpoints.
-This dramatically reduces the infrastructure requirements for the end-user.
-They just need to start an http server and initial a tunnel to a service.
+This dramatically reduces the infrastructure requirements for the end-user. They
+just need to start an http server and initial a tunnel to a service.
 
-# Development
+# Examples
+
+Checkout our examples folder.
 
 ```bash
-make example
-./build/example
+go run ./cmd/example
 ```
 
 ```bash
-make tunnel
+ssh -L 0.0.0.0:1338:localhost:80 \
+		-p 2222 \
+		-o UserKnownHostsFile=/dev/null \
+		-o StrictHostKeyChecking=no \
+		-N \
+		localhost
 ```
 
-Go to http://localhost:5000
+Go to http://localhost:1338

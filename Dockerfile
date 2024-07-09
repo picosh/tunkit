@@ -1,13 +1,5 @@
-FROM golang:1.21-alpine
-
-WORKDIR /app
-
-COPY go.* .
-
-RUN go mod download
-
-COPY . .
-
-RUN go build -o docker cmd/docker/main.go
-
-CMD [ "/app/docker" ]
+FROM alpine:3.19
+RUN apk update \
+    && apk add --no-cache autossh ca-certificates bash curl
+COPY entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
