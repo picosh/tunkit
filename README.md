@@ -1,16 +1,18 @@
-# ptun - web tunnels
+# tunkit - ssh tunnel tooling
 
-Passwordless authentication for the browser using SSH tunnels.
+- Passwordless authentication for the browser using SSH local forwarding.
+- Pub/sub system using SSH remote forwarding.
+- Implemented as [wish](https://github.com/charmbracelet/wish) middleware.
 
-# How it works
+# Passwordless authentication
 
-The end-user creates a local forward SSH tunnel to a service running `ptun`.
-`ptun` spins up a dedicated web service for that tunnel -- using a unix socket.
+The end-user creates a local forward SSH tunnel to a service running `tunkit`.
+`tunkit` spins up a dedicated web service for that tunnel -- using a unix socket.
 Then the user can access that web service using `localhost`. The web service can
 then access the SSH context in order to know who the user is and what they are
 authorized to do within the web service.
 
-# Why?
+## Why?
 
 Sometimes all you have is an ssh keypair for authenticating a user and don't
 want to require them to create a completely separate auth mechanism for website
@@ -21,6 +23,22 @@ using just an SSH keypair? Well now it's possible.
 
 We built this library to support [imgs.sh](https://pico.sh/imgs): a private
 docker registry leveraging SSH tunnels.
+
+# Pub/sub system
+
+Use an SSH tunnels for "webhooks":
+
+- Integrate the publisher middleware into an SSH server
+- A user can start an http server on localhost
+- User can initial an SSH remote tunnel to SSH server
+- Publisher emits events by `http.Get` the user's local http server
+
+## Why?
+
+The biggest benefit is the user's http server is not public.  There's zero
+concern for malicious actors or bots trying to hit a user's event endpoints.
+This dramatically reduces the infrastructure requirements for the end-user.
+They just need to start an http server and initial a tunnel to a service.
 
 # Development
 
