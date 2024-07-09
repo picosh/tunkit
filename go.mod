@@ -1,4 +1,4 @@
-module github.com/picosh/ptun
+module github.com/picosh/tunkit
 
 go 1.21.9
 
