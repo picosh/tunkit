@@ -42,7 +42,7 @@ just need to start an http server and initial a tunnel to a service.
 
 # Examples
 
-Checkout our examples folder.
+Checkout our [cmd/](./cmd/) folder for more examples.
 
 ```bash
 go run ./cmd/example
