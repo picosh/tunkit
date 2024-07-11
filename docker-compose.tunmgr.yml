@@ -1,0 +1,29 @@
+services:
+  tunmgr:
+    build:
+      context: .
+      dockerfile: Dockerfile.tunmgr
+    env_file:
+      - .env
+    environment:
+      KEY_LOCATION: /id_rsa
+      DOCKER_HOST: unix:///var/run/docker.sock
+      NETWORKS: ""
+      LOG_LEVEL: info
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - $HOME/.ssh/id_rsa:/id_rsa:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+  httpbin:
+    image: kennethreitz/httpbin
+    depends_on:
+      tunmgr:
+        condition: service_healthy
+    expose:
+      - 80
+    command: gunicorn -b 0.0.0.0:80 httpbin:app -k gevent --access-logfile -

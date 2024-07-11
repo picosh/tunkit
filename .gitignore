@@ -6,3 +6,4 @@ build/*
 ssh_data
 __debug_bin
 .bin
+.env

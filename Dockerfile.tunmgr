@@ -1,0 +1,23 @@
+FROM golang:1.22-alpine as builder
+
+WORKDIR /usr/src/app
+
+COPY go.* .
+
+RUN --mount=type=cache,target=/go/pkg/,rw \
+  --mount=type=cache,target=/root/.cache/,rw \
+  go mod download
+
+COPY . .
+
+RUN --mount=type=cache,target=/go/pkg/,rw \
+  --mount=type=cache,target=/root/.cache/,rw \
+  go build -o tunmgr ./cmd/tunmgr
+
+FROM alpine
+
+RUN apk add --no-cache curl
+
+COPY --from=builder /usr/src/app/tunmgr /tunmgr
+
+CMD [ "/tunmgr" ]
