@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,9 +22,20 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/client"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/exp/maps"
 )
+
+type sliceFlags []string
+
+func (s *sliceFlags) String() string {
+	return fmt.Sprintf("%+v", []string(*s))
+}
+
+func (s *sliceFlags) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
 
 type TunHandler struct {
 	Listener   net.Listener
@@ -35,16 +50,16 @@ type TunMgr struct {
 	Tunnels      *syncmap.Map[string, *syncmap.Map[string, *TunHandler]]
 }
 
-func (m *TunMgr) RemoveTunnels(containerID string) error {
-	tunHandlers, ok := m.Tunnels.Load(containerID)
+func (m *TunMgr) RemoveTunnels(tunnelID string) error {
+	tunHandlers, ok := m.Tunnels.Load(tunnelID)
 	if !ok {
-		return fmt.Errorf("unable to find container: %s", containerID)
+		return fmt.Errorf("unable to find tunnel: %s", tunnelID)
 	}
 
 	toDelete := []string{}
 
 	logger := slog.With(
-		slog.String("container_id", containerID),
+		slog.String("tunnel_id", tunnelID),
 	)
 
 	tunHandlers.Range(func(rAddr string, handler *TunHandler) bool {
@@ -105,7 +120,7 @@ func (m *TunMgr) RemoveTunnels(containerID string) error {
 		tunHandlers.Delete(rAddr)
 	}
 
-	m.Tunnels.Delete(containerID)
+	m.Tunnels.Delete(tunnelID)
 
 	return nil
 }
@@ -122,8 +137,8 @@ type forwardedTCPPayload struct {
 	OriginPort uint32
 }
 
-func (m *TunMgr) AddTunnel(containerID string, remoteAddr string, localAddr string) (string, error) {
-	tunHandlers, _ := m.Tunnels.LoadOrStore(containerID, syncmap.New[string, *TunHandler]())
+func (m *TunMgr) AddTunnel(tunnelID string, remoteAddr string, localAddr string) (string, error) {
+	tunHandlers, _ := m.Tunnels.LoadOrStore(tunnelID, syncmap.New[string, *TunHandler]())
 
 	remoteHost, remotePort, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
@@ -174,6 +189,37 @@ func (m *TunMgr) AddTunnel(containerID string, remoteAddr string, localAddr stri
 	return remoteAddr, err
 }
 
+func (m *TunMgr) WatchDog() {
+	err := m.SSHClient.Wait()
+	slog.Error("SSH Connection closed, killing program", slog.Any("error", err))
+	panic(err)
+}
+
+func (m *TunMgr) HandleLogs() {
+	session, err := m.SSHClient.NewSession()
+	if err != nil {
+		slog.Error("Unable to handle logs, setup session failed", slog.Any("error", err))
+		return
+	}
+
+	r, w := io.Pipe()
+
+	session.Stderr = w
+	session.Stdout = w
+
+	err = session.Shell()
+	if err != nil {
+		slog.Error("Unable to handle logs, run shell failed", slog.Any("error", err))
+		return
+	}
+
+	_, err = io.Copy(os.Stdout, r)
+	if err != nil {
+		slog.Error("Unable to handle logs, copy to stdout failed", slog.Any("error", err))
+		return
+	}
+}
+
 func (m *TunMgr) HandleChannels() {
 	for ch := range m.SSHClient.HandleChannelOpen("forwarded-tcpip") {
 		logger := slog.With(
@@ -201,9 +247,9 @@ func (m *TunMgr) HandleChannels() {
 
 			logger.Debug("About to iterate")
 
-			m.Tunnels.Range(func(containerID string, tunHandlers *syncmap.Map[string, *TunHandler]) bool {
+			m.Tunnels.Range(func(tunnelID string, tunHandlers *syncmap.Map[string, *TunHandler]) bool {
 				tunLogger := logger.With(
-					slog.String("container_id", containerID),
+					slog.String("tunnel_id", tunnelID),
 					slog.String("remote_addr", remoteAddr),
 				)
 
@@ -315,8 +361,12 @@ func createDockerClient() *client.Client {
 	return dockerClient
 }
 
-func createSSHClient() *ssh.Client {
-	rawConn, err := net.Dial("tcp", os.Getenv("REMOTE_HOST"))
+func createSSHClient(remoteHost string, keyLocation string, keyPassphrase string, remoteHostname string, remoteUser string) *ssh.Client {
+	if !strings.Contains(remoteHost, ":") {
+		remoteHost += ":22"
+	}
+
+	rawConn, err := net.Dial("tcp", remoteHost)
 	if err != nil {
 		slog.Error(
 			"Unable to create ssh client, tcp connection not established",
@@ -325,7 +375,16 @@ func createSSHClient() *ssh.Client {
 		panic(err)
 	}
 
-	f, err := os.Open(os.Getenv("KEY_LOCATION"))
+	keyPath, err := filepath.Abs(keyLocation)
+	if err != nil {
+		slog.Error(
+			"Unable to create ssh client, cannot find key file",
+			slog.Any("error", err),
+		)
+		panic(err)
+	}
+
+	f, err := os.Open(keyPath)
 	if err != nil {
 		slog.Error(
 			"Unable to create ssh client, unable to open key",
@@ -346,8 +405,8 @@ func createSSHClient() *ssh.Client {
 
 	var signer ssh.Signer
 
-	if os.Getenv("KEY_PASSPHRASE") != "" {
-		signer, err = ssh.ParsePrivateKeyWithPassphrase(data, []byte(os.Getenv("KEY_PASSPHRASE")))
+	if keyPassphrase != "" {
+		signer, err = ssh.ParsePrivateKeyWithPassphrase(data, []byte(keyPassphrase))
 	} else {
 		signer, err = ssh.ParsePrivateKey(data)
 	}
@@ -360,10 +419,10 @@ func createSSHClient() *ssh.Client {
 		panic(err)
 	}
 
-	sshConn, chans, reqs, err := ssh.NewClientConn(rawConn, os.Getenv("REMOTE_HOSTNAME"), &ssh.ClientConfig{
+	sshConn, chans, reqs, err := ssh.NewClientConn(rawConn, remoteHostname, &ssh.ClientConfig{
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		User:            os.Getenv("REMOTE_USER"),
+		User:            remoteUser,
 	})
 	if err != nil {
 		slog.Error(
@@ -378,8 +437,8 @@ func createSSHClient() *ssh.Client {
 	return sshClient
 }
 
-func handleContainerStart(tunMgr *TunMgr, logger *slog.Logger, containerID string, networks []string) error {
-	containerInfo, err := tunMgr.DockerClient.ContainerInspect(context.Background(), containerID)
+func handleContainerStart(tunMgr *TunMgr, logger *slog.Logger, tunnelID string, networks []string) error {
+	containerInfo, err := tunMgr.DockerClient.ContainerInspect(context.Background(), tunnelID)
 	if err != nil {
 		logger.Error(
 			"Unable to inspect container info for tunnel",
@@ -419,7 +478,7 @@ func handleContainerStart(tunMgr *TunMgr, logger *slog.Logger, containerID strin
 	slices.Sort(dnsNames)
 	exposedPorts = slices.Compact(exposedPorts)
 
-	for _, netw := range maps.Keys(containerInfo.NetworkSettings.Networks) {
+	for netw := range maps.Keys(containerInfo.NetworkSettings.Networks) {
 		if slices.Contains(networks, strings.ToLower(strings.TrimSpace(netw))) {
 			dnsNames = append(dnsNames, containerInfo.NetworkSettings.Networks[netw].DNSNames...)
 			slices.Sort(dnsNames)
@@ -459,10 +518,26 @@ func handleContainerStart(tunMgr *TunMgr, logger *slog.Logger, containerID strin
 }
 
 func main() {
-	var rootLoggerLevel slog.Level
-	logLevel := os.Getenv("LOG_LEVEL")
+	logLevelFlag := flag.String("log-level", "info", "Log level to set for the logger. Can be debug, warn, error, or info")
+	networksFlag := flag.String("networks", "", "A comma separated list of networks to listen to events for")
+	remoteHostFlag := flag.String("remote-host", "", "The remote host to connect to in the format of host:port")
+	remoteHostnameFlag := flag.String("remote-hostname", "", "The remote hostname to verify the host key")
+	remoteUserFlag := flag.String("remote-user", "", "The remote user to connect as")
+	keyLocationFlag := flag.String("remote-key-location", "", "The location on the filesystem of where to access the ssh key")
+	keyPassphraseFlag := flag.String("remote-key-passphrase", "", "The passphrase for an encrypted ssh key")
 
-	switch strings.ToLower(logLevel) {
+	var tunnels sliceFlags
+
+	flag.Var(&tunnels, "tunnel", "Tunnel to initialize on setup. Can be provided multiple times, in the format of a -R tunnel for SSH.")
+
+	dockerEvents := flag.Bool("docker-events", false, "Whether or not to use docker events for setting up tunnels")
+	remoteLogs := flag.Bool("remote-logs", true, "Whether or not to print logs from the remote tunnels")
+
+	flag.Parse()
+
+	var rootLoggerLevel slog.Level
+
+	switch strings.ToLower(*logLevelFlag) {
 	case "debug":
 		rootLoggerLevel = slog.LevelDebug
 	case "warn":
@@ -479,56 +554,70 @@ func main() {
 
 	slog.SetDefault(rootLogger)
 
-	dockerClient := createDockerClient()
-	defer dockerClient.Close()
-
+	var dockerClient *client.Client
 	networks := []string{}
-	networksToCheck := strings.TrimSpace(os.Getenv("NETWORKS"))
-	if networksToCheck == "" {
-		hostname, err := os.Hostname()
-		if err != nil || hostname == "" {
-			rootLogger.Error(
-				"Unable to get hostname",
-				slog.Any("error", err),
-			)
-		} else {
-			info, err := dockerClient.ContainerInspect(context.Background(), hostname)
-			if err != nil {
+
+	if *dockerEvents {
+		dockerClient = createDockerClient()
+		defer dockerClient.Close()
+
+		networksToCheck := strings.TrimSpace(*networksFlag)
+		if networksToCheck == "" {
+			hostname, err := os.Hostname()
+			if err != nil || hostname == "" {
 				rootLogger.Error(
-					"Unable to find networks. Please provide a list to monitor",
+					"Unable to get hostname",
 					slog.Any("error", err),
 				)
-				panic(err)
-			}
+			} else {
+				info, err := dockerClient.ContainerInspect(context.Background(), hostname)
+				if err != nil {
+					rootLogger.Error(
+						"Unable to find networks. Please provide a list to monitor",
+						slog.Any("error", err),
+					)
+					panic(err)
+				}
 
-			for _, netw := range maps.Keys(info.NetworkSettings.Networks) {
+				for netw := range maps.Keys(info.NetworkSettings.Networks) {
+					networks = append(networks, strings.ToLower(strings.TrimSpace(netw)))
+				}
+			}
+		} else {
+			for _, netw := range strings.Split(networksToCheck, ",") {
 				networks = append(networks, strings.ToLower(strings.TrimSpace(netw)))
 			}
 		}
-	} else {
-		for _, netw := range strings.Split(networksToCheck, ",") {
-			networks = append(networks, strings.ToLower(strings.TrimSpace(netw)))
-		}
 	}
 
-	sshClient := createSSHClient()
+	sshClient := createSSHClient(*remoteHostFlag, *keyLocationFlag, *keyPassphraseFlag, *remoteHostnameFlag, *remoteUserFlag)
 	defer sshClient.Close()
+
+	loggerArgs := []any{
+		slog.String("ssh", sshClient.RemoteAddr().String()),
+		slog.String("ssh_user", sshClient.User()),
+	}
+
+	if dockerClient != nil {
+		loggerArgs = append(loggerArgs, slog.String("docker", dockerClient.DaemonHost()),
+			slog.String("docker_version", dockerClient.ClientVersion()))
+	}
 
 	rootLogger.Info(
 		"Started tunmgr",
-		slog.String("docker", dockerClient.DaemonHost()),
-		slog.String("docker_version", dockerClient.ClientVersion()),
-		slog.String("ssh", sshClient.RemoteAddr().String()),
-		slog.String("ssh_user", sshClient.User()),
+		loggerArgs...,
 	)
-
-	eventCtx, cancelEventCtx := context.WithCancel(context.Background())
-
-	clientEvents, errs := dockerClient.Events(eventCtx, events.ListOptions{})
 
 	tunMgr := NewTunMgr(dockerClient, sshClient)
 
+	go tunMgr.WatchDog()
+
+	if *remoteLogs {
+		go tunMgr.HandleLogs()
+	}
+
 	go tunMgr.HandleChannels()
+
 	go func() {
 		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(200)
@@ -540,76 +629,127 @@ func main() {
 		}
 	}()
 
-	containers, err := dockerClient.ContainerList(context.Background(), container.ListOptions{})
-	if err != nil {
-		rootLogger.Error(
-			"unable to list container from docker",
-			slog.Any("error", err),
+	for _, tunnel := range tunnels {
+		tunnelInfo := strings.Split(tunnel, ":")
+
+		if len(tunnelInfo) < 3 {
+			continue
+		}
+
+		tunnelRemote := tunnelInfo[0]
+		if len(tunnelInfo) == 4 {
+			tunnelRemote += fmt.Sprintf(":%s", tunnelInfo[1])
+		}
+
+		tunnelLocal := fmt.Sprintf("%s:%s", tunnelInfo[len(tunnelInfo)-2], tunnelInfo[len(tunnelInfo)-1])
+
+		rootLogger.Info(
+			"Adding tunnel",
+			slog.String("remote", tunnelRemote),
+			slog.String("local", tunnelLocal),
+		)
+
+		remoteAddr, err := tunMgr.AddTunnel(uuid.New().String(), tunnelRemote, tunnelLocal)
+		if err != nil {
+			rootLogger.Error(
+				"Unable to start tunnel",
+				slog.String("remote", tunnelRemote),
+				slog.String("local", tunnelLocal),
+				slog.Any("error", err),
+			)
+		}
+
+		rootLogger.Debug(
+			"Remote addr",
+			slog.String("remote_addr", remoteAddr),
 		)
 	}
 
-	for _, container := range containers {
-		err := handleContainerStart(tunMgr, rootLogger, container.ID, networks)
-		if err != nil {
-			rootLogger.Error(
-				"Unable to add tunnels for container",
-				slog.String("container_id", container.ID),
-				slog.Any("error", err),
-				slog.Any("container_data", container),
-			)
-			break
-		}
-	}
+	if dockerClient != nil {
+		go func() {
+			eventCtx, cancelEventCtx := context.WithCancel(context.Background())
 
-	for {
-		select {
-		case event := <-clientEvents:
-			switch event.Type {
-			case events.ContainerEventType:
-				logger := slog.With(
-					slog.String("event", string(event.Action)),
-					slog.String("container_id", event.Actor.ID),
-				)
-				switch event.Action {
-				case events.ActionStart:
-					logger.Info("Received start")
-					err := handleContainerStart(tunMgr, logger, event.Actor.ID, networks)
-					if err != nil {
-						logger.Error(
-							"Unable to add tunnels for container",
-							slog.Any("error", err),
-						)
-						break
-					}
-				case events.ActionDie:
-					logger.Info("Received die")
-					err := tunMgr.RemoveTunnels(event.Actor.ID)
-					if err != nil {
-						logger.Error(
-							"Unable to remove tunnels for container",
-							slog.Any("error", err),
-						)
-						break
-					}
-				default:
-					logger.Debug(
-						"Unhandled container action",
-						slog.Any("event_data", event),
-					)
-				}
-			default:
-				slog.Debug(
-					"Unhandled daemon event",
-					slog.Any("event_data", event),
+			clientEvents, errs := dockerClient.Events(eventCtx, events.ListOptions{})
+
+			containers, err := dockerClient.ContainerList(context.Background(), container.ListOptions{})
+			if err != nil {
+				rootLogger.Error(
+					"unable to list container from docker",
+					slog.Any("error", err),
 				)
 			}
-		case err := <-errs:
-			cancelEventCtx()
-			slog.Error(
-				"Error receiving events from daemon",
-				slog.Any("error", err),
-			)
-			panic(err)
-		}
+
+			for _, container := range containers {
+				err := handleContainerStart(tunMgr, rootLogger, container.ID, networks)
+				if err != nil {
+					rootLogger.Error(
+						"Unable to add tunnels for container",
+						slog.String("tunnel_id", container.ID),
+						slog.Any("error", err),
+						slog.Any("container_data", container),
+					)
+					break
+				}
+			}
+
+			for {
+				select {
+				case event := <-clientEvents:
+					switch event.Type {
+					case events.ContainerEventType:
+						logger := slog.With(
+							slog.String("event", string(event.Action)),
+							slog.String("tunnel_id", event.Actor.ID),
+						)
+						switch event.Action {
+						case events.ActionStart:
+							logger.Info("Received start")
+							err := handleContainerStart(tunMgr, logger, event.Actor.ID, networks)
+							if err != nil {
+								logger.Error(
+									"Unable to add tunnels for container",
+									slog.Any("error", err),
+								)
+								break
+							}
+						case events.ActionDie:
+							logger.Info("Received die")
+							err := tunMgr.RemoveTunnels(event.Actor.ID)
+							if err != nil {
+								logger.Error(
+									"Unable to remove tunnels for container",
+									slog.Any("error", err),
+								)
+								break
+							}
+						default:
+							logger.Debug(
+								"Unhandled container action",
+								slog.Any("event_data", event),
+							)
+						}
+					default:
+						slog.Debug(
+							"Unhandled daemon event",
+							slog.Any("event_data", event),
+						)
+					}
+				case err := <-errs:
+					cancelEventCtx()
+					slog.Error(
+						"Error receiving events from daemon",
+						slog.Any("error", err),
+					)
+					panic(err)
+				}
+			}
+		}()
+	}
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	for s := range c {
+		slog.Info("Signal recieved. Exiting", slog.Any("signal", s))
+		break
 	}
 }

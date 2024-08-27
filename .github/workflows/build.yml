@@ -26,3 +26,9 @@ jobs:
         file: ./Dockerfile
         push: true
         tags: ghcr.io/picosh/tunkit/autossh:latest
+    - name: Build and push
+      uses: docker/build-push-action@v5
+      with:
+        file: ./Dockerfile.tunmgr
+        push: true
+        tags: ghcr.io/picosh/tunkit/tunmgr:latest

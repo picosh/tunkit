@@ -3,13 +3,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.tunmgr
-    env_file:
-      - .env
-    environment:
-      KEY_LOCATION: /id_rsa
-      DOCKER_HOST: unix:///var/run/docker.sock
-      NETWORKS: ""
-      LOG_LEVEL: info
+    restart: always
+    command: |
+      -docker-events=true
+      -remote-host=tuns.sh
+      -remote-key-location=/id_rsa
+      -remote-key-passphrase=
+      -remote-logs=true
+      -tunnel=foobar:1113:httpbin.org:80
+      -log-level=info
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - $HOME/.ssh/id_rsa:/id_rsa:ro
