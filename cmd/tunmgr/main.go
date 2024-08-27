@@ -243,7 +243,7 @@ func (m *TunMgr) HandleChannels() {
 
 			remoteAddr := fmt.Sprintf("%s:%d", payload.Addr, payload.Port)
 
-			failed := false
+			failed := true
 
 			logger.Debug("About to iterate")
 
@@ -259,10 +259,10 @@ func (m *TunMgr) HandleChannels() {
 				tunLogger.Debug("handler", slog.Any("handler", handler), slog.Bool("ok", ok))
 				if !ok {
 					tunLogger.Info("unable to find handler")
-
-					failed = true
-					return false
+					return true
 				}
+
+				failed = false
 
 				handlerLogger := tunLogger.With(
 					slog.String("local_addr", handler.LocalAddr),

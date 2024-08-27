@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.tunmgr
+    image: ghcr.io/picosh/tunkit/tunmgr:latest
     restart: always
     command: |
       -docker-events=true
