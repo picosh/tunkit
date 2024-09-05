@@ -21,6 +21,8 @@ access.
 For example, have you ever wished you could use `docker push` and `docker pull`
 using just an SSH keypair? Well now it's possible.
 
+Run our [cmd/docker](./cmd/docker/) example to see it in action!
+
 We built this library to support [imgs.sh](https://pico.sh/imgs): a private
 docker registry leveraging SSH tunnels.
 

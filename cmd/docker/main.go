@@ -36,9 +36,14 @@ func serveMux(ctx ssh.Context) http.Handler {
 	router := http.NewServeMux()
 	slug := ctx.User()
 
+	registryUrl := os.Getenv("REGISTRY_URL")
+	if registryUrl == "" {
+		registryUrl = "registry:5000"
+	}
+
 	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
 		Scheme: "http",
-		Host:   "registry:5000",
+		Host:   registryUrl,
 	})
 
 	oldDirector := proxy.Director
