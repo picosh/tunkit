@@ -24,6 +24,10 @@ using just an SSH keypair? Well now it's possible.
 Run our [cmd/docker](./cmd/docker/) example to see it in action!
 
 ```bash
+# setup auth
+mkdir ssh_data
+cat ~/.ssh/id_ed25519.pub > ./ssh_data/authorized_keys
+
 # start a registry
 docker run -d -p 5000:5000 --restart always --name registry registry:2
 # run the SSH app
@@ -35,6 +39,7 @@ ssh -L 1338:localhost:80 \
 		-o StrictHostKeyChecking=no \
 		-N \
 		localhost
+
 # tag image
 docker tag alpine localhost:1338/alpine
 # push image
