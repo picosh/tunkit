@@ -23,6 +23,26 @@ using just an SSH keypair? Well now it's possible.
 
 Run our [cmd/docker](./cmd/docker/) example to see it in action!
 
+```bash
+# start a registry
+docker run -d -p 5000:5000 --restart always --name registry registry:2
+# run the SSH app
+REGISTRY_URL="localhost:5000" go run ./cmd/docker
+# connect to SSH app
+ssh -L 1338:localhost:80 \
+		-p 2222 \
+		-o UserKnownHostsFile=/dev/null \
+		-o StrictHostKeyChecking=no \
+		-N \
+		localhost
+# tag image
+docker tag alpine localhost:1338/alpine
+# push image
+docker push localhost:1338/alpine:latest
+# pull image
+docker pull localhost:1338/alpine:latest
+```
+
 We built this library to support [imgs.sh](https://pico.sh/imgs): a private
 docker registry leveraging SSH tunnels.
 
