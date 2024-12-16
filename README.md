@@ -1,7 +1,6 @@
 # tunkit - ssh tunnel tooling
 
 - Passwordless authentication for the browser using SSH local forwarding.
-- Pub/sub system using SSH remote forwarding.
 - Implemented as [wish](https://github.com/charmbracelet/wish) middleware.
 
 # Passwordless authentication
@@ -50,22 +49,6 @@ docker pull localhost:1338/alpine:latest
 
 We built this library to support [imgs.sh](https://pico.sh/imgs): a private
 docker registry leveraging SSH tunnels.
-
-# Pub/sub system
-
-Use an SSH tunnels for "webhooks":
-
-- Integrate the publisher middleware into an SSH server
-- A user can start an http server on localhost
-- User can initial an SSH remote tunnel to SSH server
-- Publisher emits events by `http.Get` the user's local http server
-
-## Why?
-
-The biggest benefit is the user's http server is not public. There's zero
-concern for malicious actors or bots trying to hit a user's event endpoints.
-This dramatically reduces the infrastructure requirements for the end-user. They
-just need to start an http server and initial a tunnel to a service.
 
 # Examples
 
