@@ -1,7 +1,6 @@
 # tunkit - ssh tunnel tooling
 
 - Passwordless authentication for the browser using SSH local forwarding.
-- Implemented as [wish](https://github.com/charmbracelet/wish) middleware.
 
 # Passwordless authentication
 

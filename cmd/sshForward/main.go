@@ -1,18 +1,12 @@
 package main
 
 import (
-	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
-	"github.com/charmbracelet/ssh"
-	"github.com/charmbracelet/wish"
+	"github.com/picosh/pico/pssh"
 	"github.com/picosh/tunkit"
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -21,7 +15,7 @@ type handler struct {
 	logger *slog.Logger
 }
 
-func (h *handler) CreateConn(ctx ssh.Context) (net.Conn, error) {
+func (h *handler) CreateConn(ctx *pssh.SSHServerConnSession) (net.Conn, error) {
 	rawConn, err := net.Dial("tcp", os.Getenv("REMOTE_HOST"))
 	if err != nil {
 		return nil, err
@@ -66,56 +60,56 @@ func (h *handler) GetLogger() *slog.Logger {
 	return h.logger
 }
 
-func (h *handler) Close(ctx ssh.Context) error {
+func (h *handler) Close(ctx *pssh.SSHServerConnSession) error {
 	return nil
 }
 
 var _ tunkit.Tunnel = &handler{}
 
 func main() {
-	host := os.Getenv("SSH_HOST")
-	if host == "" {
-		host = "0.0.0.0"
-	}
-	port := os.Getenv("SSH_PORT")
-	if port == "" {
-		port = "2222"
-	}
-	keyPath := os.Getenv("SSH_AUTHORIZED_KEYS")
-	if keyPath == "" {
-		keyPath = "ssh_data/authorized_keys"
-	}
-	logger := slog.Default()
+	// host := os.Getenv("SSH_HOST")
+	// if host == "" {
+	// 	host = "0.0.0.0"
+	// }
+	// port := os.Getenv("SSH_PORT")
+	// if port == "" {
+	// 	port = "2222"
+	// }
+	// keyPath := os.Getenv("SSH_AUTHORIZED_KEYS")
+	// if keyPath == "" {
+	// 	keyPath = "ssh_data/authorized_keys"
+	// }
+	// logger := slog.Default()
 
-	s, err := wish.NewServer(
-		wish.WithAddress(fmt.Sprintf("%s:%s", host, port)),
-		wish.WithHostKeyPath("ssh_data/term_info_ed25519"),
-		wish.WithAuthorizedKeys(keyPath),
-		tunkit.WithTunnel(&handler{
-			logger: logger,
-		}),
-	)
+	// s, err := wish.NewServer(
+	// 	wish.WithAddress(fmt.Sprintf("%s:%s", host, port)),
+	// 	wish.WithHostKeyPath("ssh_data/term_info_ed25519"),
+	// 	wish.WithAuthorizedKeys(keyPath),
+	// 	tunkit.WithTunnel(&handler{
+	// 		logger: logger,
+	// 	}),
+	// )
 
-	if err != nil {
-		logger.Error("could not create server", "err", err)
-	}
+	// if err != nil {
+	// 	logger.Error("could not create server", "err", err)
+	// }
 
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-	logger.Info("starting SSH server", "host", host, "port", port)
-	go func() {
-		if err = s.ListenAndServe(); err != nil {
-			logger.Error("serve error", "err", err)
-			os.Exit(1)
-		}
-	}()
+	// done := make(chan os.Signal, 1)
+	// signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	// logger.Info("starting SSH server", "host", host, "port", port)
+	// go func() {
+	// 	if err = s.ListenAndServe(); err != nil {
+	// 		logger.Error("serve error", "err", err)
+	// 		os.Exit(1)
+	// 	}
+	// }()
 
-	<-done
-	logger.Info("stopping SSH server")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer func() { cancel() }()
-	if err := s.Shutdown(ctx); err != nil {
-		logger.Error("shutdown", "err", err)
-		os.Exit(1)
-	}
+	// <-done
+	// logger.Info("stopping SSH server")
+	// ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// defer func() { cancel() }()
+	// if err := s.Shutdown(ctx); err != nil {
+	// 	logger.Error("shutdown", "err", err)
+	// 	os.Exit(1)
+	// }
 }

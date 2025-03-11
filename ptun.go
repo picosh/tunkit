@@ -7,8 +7,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/charmbracelet/ssh"
-	gossh "golang.org/x/crypto/ssh"
+	"github.com/picosh/pico/pssh"
+	"golang.org/x/crypto/ssh"
 )
 
 type forwardedTCPPayload struct {
@@ -18,30 +18,18 @@ type forwardedTCPPayload struct {
 	OriginPort uint32
 }
 
-type LocalForwardFn = func(*ssh.Server, *gossh.ServerConn, gossh.NewChannel, ssh.Context)
+type LocalForwardFn = func(ssh.NewChannel, *pssh.SSHServerConnSession)
 
 type Tunnel interface {
-	CreateConn(ctx ssh.Context) (net.Conn, error)
+	CreateConn(ctx *pssh.SSHServerConnSession) (net.Conn, error)
 	GetLogger() *slog.Logger
-	Close(ctx ssh.Context) error
-}
-
-func WithTunnel(handler Tunnel) ssh.Option {
-	return func(serv *ssh.Server) error {
-		if serv.ChannelHandlers == nil {
-			serv.ChannelHandlers = map[string]ssh.ChannelHandler{
-				"session": ssh.DefaultSessionHandler,
-			}
-		}
-		serv.ChannelHandlers["direct-tcpip"] = localForwardHandler(handler)
-		return nil
-	}
+	Close(ctx *pssh.SSHServerConnSession) error
 }
 
 func localForwardHandler(handler Tunnel) LocalForwardFn {
-	return func(srv *ssh.Server, conn *gossh.ServerConn, newChan gossh.NewChannel, ctx ssh.Context) {
+	return func(newChan ssh.NewChannel, ctx *pssh.SSHServerConnSession) {
 		check := &forwardedTCPPayload{}
-		err := gossh.Unmarshal(newChan.ExtraData(), check)
+		err := ssh.Unmarshal(newChan.ExtraData(), check)
 		logger := handler.GetLogger()
 		if err != nil {
 			logger.Error(
@@ -64,7 +52,7 @@ func localForwardHandler(handler Tunnel) LocalForwardFn {
 			log.Error("cannot accept new channel", "err", err)
 			return
 		}
-		go gossh.DiscardRequests(reqs)
+		go ssh.DiscardRequests(reqs)
 
 		go func() {
 			downConn, err := handler.CreateConn(ctx)
@@ -106,10 +94,7 @@ func localForwardHandler(handler Tunnel) LocalForwardFn {
 			wg.Wait()
 		}()
 
-		err = conn.Wait()
-		if err != nil {
-			log.Error("conn wait error", "err", err)
-		}
+		<-ctx.Done()
 		err = handler.Close(ctx)
 		if err != nil {
 			log.Error("tunnel handler error", "err", err)

@@ -6,19 +6,19 @@ import (
 	"net"
 	"os"
 
-	"github.com/charmbracelet/ssh"
+	"github.com/picosh/pico/pssh"
 )
 
 type ctxAddressKey struct{}
 
-func getAddressCtx(ctx ssh.Context) (string, error) {
+func getAddressCtx(ctx *pssh.SSHServerConnSession) (string, error) {
 	address, ok := ctx.Value(ctxAddressKey{}).(string)
 	if address == "" || !ok {
-		return address, fmt.Errorf("address not set on `ssh.Context()` for connection")
+		return address, fmt.Errorf("address not set on `*pssh.SSHServerConnSession()` for connection")
 	}
 	return address, nil
 }
-func setAddressCtx(ctx ssh.Context, address string) {
+func setAddressCtx(ctx *pssh.SSHServerConnSession, address string) {
 	ctx.SetValue(ctxAddressKey{}, address)
 }
 
@@ -42,7 +42,7 @@ func (wt *WebTunnelHandler) GetHttpHandler() HttpHandlerFn {
 	return wt.HttpHandler
 }
 
-func (wt *WebTunnelHandler) Close(ctx ssh.Context) error {
+func (wt *WebTunnelHandler) Close(ctx *pssh.SSHServerConnSession) error {
 	listener, err := getListenerCtx(ctx)
 	if err != nil {
 		return err
@@ -56,7 +56,7 @@ func (wt *WebTunnelHandler) Close(ctx ssh.Context) error {
 	return nil
 }
 
-func (wt *WebTunnelHandler) CreateListener(ctx ssh.Context) (net.Listener, error) {
+func (wt *WebTunnelHandler) CreateListener(ctx *pssh.SSHServerConnSession) (net.Listener, error) {
 	tempFile, err := os.CreateTemp("", "")
 	if err != nil {
 		return nil, err
@@ -76,7 +76,7 @@ func (wt *WebTunnelHandler) CreateListener(ctx ssh.Context) (net.Listener, error
 	return connListener, nil
 }
 
-func (wt *WebTunnelHandler) CreateConn(ctx ssh.Context) (net.Conn, error) {
+func (wt *WebTunnelHandler) CreateConn(ctx *pssh.SSHServerConnSession) (net.Conn, error) {
 	_, err := httpServe(wt, ctx, wt.GetLogger())
 	if err != nil {
 		wt.GetLogger().Info("unable to create listener", "err", err)

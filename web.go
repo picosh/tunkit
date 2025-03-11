@@ -6,37 +6,34 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/charmbracelet/ssh"
+	"github.com/picosh/pico/pssh"
 )
 
-type HttpHandlerFn = func(ctx ssh.Context) http.Handler
+type HttpHandlerFn = func(ctx *pssh.SSHServerConnSession) http.Handler
 
 type WebTunnel interface {
 	GetHttpHandler() HttpHandlerFn
-	CreateListener(ctx ssh.Context) (net.Listener, error)
-	CreateConn(ctx ssh.Context) (net.Conn, error)
+	CreateListener(ctx *pssh.SSHServerConnSession) (net.Listener, error)
+	CreateConn(ctx *pssh.SSHServerConnSession) (net.Conn, error)
 	GetLogger() *slog.Logger
-	Close(ctx ssh.Context) error
-}
-
-func WithWebTunnel(handler WebTunnel) ssh.Option {
-	return WithTunnel(handler)
+	Close(ctx *pssh.SSHServerConnSession) error
 }
 
 type ctxListenerKey struct{}
 
-func getListenerCtx(ctx ssh.Context) (net.Listener, error) {
+func getListenerCtx(ctx *pssh.SSHServerConnSession) (net.Listener, error) {
 	listener, ok := ctx.Value(ctxListenerKey{}).(net.Listener)
 	if listener == nil || !ok {
-		return nil, fmt.Errorf("listener not set on `ssh.Context()` for connection")
+		return nil, fmt.Errorf("listener not set on `*pssh.SSHServerConnSession()` for connection")
 	}
 	return listener, nil
 }
-func setListenerCtx(ctx ssh.Context, listener net.Listener) {
+
+func setListenerCtx(ctx *pssh.SSHServerConnSession, listener net.Listener) {
 	ctx.SetValue(ctxListenerKey{}, listener)
 }
 
-func httpServe(handler WebTunnel, ctx ssh.Context, log *slog.Logger) (net.Listener, error) {
+func httpServe(handler WebTunnel, ctx *pssh.SSHServerConnSession, log *slog.Logger) (net.Listener, error) {
 	cached, _ := getListenerCtx(ctx)
 	if cached != nil {
 		return cached, nil
