@@ -18,16 +18,14 @@ type forwardedTCPPayload struct {
 	OriginPort uint32
 }
 
-type LocalForwardFn = func(ssh.NewChannel, *pssh.SSHServerConnSession)
-
 type Tunnel interface {
 	CreateConn(ctx *pssh.SSHServerConnSession) (net.Conn, error)
 	GetLogger() *slog.Logger
 	Close(ctx *pssh.SSHServerConnSession) error
 }
 
-func localForwardHandler(handler Tunnel) LocalForwardFn {
-	return func(newChan ssh.NewChannel, ctx *pssh.SSHServerConnSession) {
+func LocalForwardHandler(handler Tunnel) pssh.SSHServerChannelMiddleware {
+	return func(newChan ssh.NewChannel, sc *pssh.SSHServerConn) error {
 		check := &forwardedTCPPayload{}
 		err := ssh.Unmarshal(newChan.ExtraData(), check)
 		logger := handler.GetLogger()
@@ -36,7 +34,7 @@ func localForwardHandler(handler Tunnel) LocalForwardFn {
 				"error unmarshaling information",
 				"err", err,
 			)
-			return
+			return err
 		}
 
 		log := logger.With(
@@ -50,8 +48,14 @@ func localForwardHandler(handler Tunnel) LocalForwardFn {
 		ch, reqs, err := newChan.Accept()
 		if err != nil {
 			log.Error("cannot accept new channel", "err", err)
-			return
+			return err
 		}
+
+		ctx := &pssh.SSHServerConnSession{
+			Channel:       ch,
+			SSHServerConn: sc,
+		}
+
 		go ssh.DiscardRequests(reqs)
 
 		go func() {
@@ -99,5 +103,6 @@ func localForwardHandler(handler Tunnel) LocalForwardFn {
 		if err != nil {
 			log.Error("tunnel handler error", "err", err)
 		}
+		return err
 	}
 }
